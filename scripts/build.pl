@@ -95,7 +95,7 @@ $callback->();
 sub generate_root_tmp {
     my $tmp_new_stage = shift;
     if ( !$skip_initial_setup ) {
-        system qw{tar -C}, $tmp_new_stage, '-xpf', $source_stage,
+        system qw{tar -C}, $tmp_new_stage, '-xvpf', $source_stage,
           qw{--numeric-owner --xattrs-include=*.*};
         system qw{rsync --exclude=.git -a -P}, "$ebuild_tree/",
           "$tmp_new_stage/var/db/repos/$repo_name/";
@@ -222,7 +222,7 @@ set timeout=5
 set default=0
 
 menuentry "AlgaOS" {
-    linux /boot/kernel-$kver root=live:LABEL=ALGAOS rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.live.overlay.overlayfs=1 rd.live.debug=1 rd.systemd.show_status=1 rd.systemd.log_level=debug
+    linux /boot/kernel-$kver root=live:LABEL=ALGAOS rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.live.overlay.overlayfs=1 rd.live.debug=1 rd.systemd.show_status=1 rd.systemd.log_level=debug quiet splash
     initrd /boot/initramfs-$kver.img
 };
 EOF
