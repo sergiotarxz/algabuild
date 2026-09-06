@@ -145,7 +145,7 @@ sub prepare_root {
     if ( system qw{eselect profile set}, $profile ) {
         die "Could not set profile $profile";
     }
-    my $is_binpkg = $yaml->{image_type} eq 'binpkg';
+    my $is_binpkg = defined $yaml->{image_type} && $yaml->{image_type} eq 'binpkg';
     if ($rebuild_all || $is_binpkg) {
         die "Could not build the system"
           if system( qw{emerge -e --with-bdeps=y @world @system},
