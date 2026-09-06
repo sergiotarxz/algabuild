@@ -12,6 +12,7 @@ commands:
     - systemctl enable sshd
     - useradd -m user -s /bin/bash || exit 0
     - passwd -d user
+    - gpasswd -a user plugdev
     - mkdir -pv /etc/sudoers.d
     - |
         cat <<'EOF'>/etc/sudoers.d/livecd
@@ -35,7 +36,7 @@ commands:
             --no-hostonly \
             --stdlog 6 \
             --force \
-            --add "dmsquash-live plymouth" \
+            --add "dmsquash-live" \
             "/boot/initramfs-${KVER}.img"
-transfer:
-    - [1000, 1000, '../../.ssh/', '/home/user/.ssh/']
+#transfer:
+#    - [1000, 1000, '../../.ssh/', '/home/user/.ssh/']

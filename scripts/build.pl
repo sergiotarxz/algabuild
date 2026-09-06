@@ -79,7 +79,11 @@ my %image_types = (
     stage => sub {
         say 'Creating stage';
         create_stage();
-    }
+    },
+    binpkg => sub {
+        say 'Creating binpkgs for the whole system';
+        create_binpkgs();
+    },
 );
 
 my $image_type = $yaml->{image_type} // 'stage';
@@ -141,9 +145,11 @@ sub prepare_root {
     if ( system qw{eselect profile set}, $profile ) {
         die "Could not set profile $profile";
     }
-    if ($rebuild_all) {
+    my $is_binpkg = $yaml->{image_type} eq 'binpkg';
+    if ($rebuild_all || $is_binpkg) {
         die "Could not build the system"
-          if system qw{emerge -e --with-bdeps=y @world @system};
+          if system( qw{emerge -e --with-bdeps=y @world @system},
+            $is_binpkg ? ('--buildpkg') : () );
     }
     else {
         if ( $yaml->{break_circular} ) {
@@ -185,6 +191,23 @@ sub prepare_root {
     system qw{touch /success};
 }
 
+sub create_binpkgs {
+    my $tmp_new_stage = "$tmp/$stage_name";
+    my $rootfs_path   = "$tmp_new_stage-root";
+    system qw{mkdir -pv}, $rootfs_path;
+    generate_root_tmp($rootfs_path);
+    mount_eval(
+        $rootfs_path,
+        sub {
+            prepare_root();
+        }
+    );
+    finish_root($rootfs_path);
+    if (system qw{rsync --mkpath -a -P}, "$rootfs_path/var/cache/binpkgs/", "$stage_dir/$stage_name/") {
+        die 'Copying binpkgs failed';
+    }
+}
+
 sub create_iso {
     my $tmp_new_stage = "$tmp/$stage_name";
     my $rootfs_path   = "$tmp_new_stage-rootfs";
@@ -198,12 +221,6 @@ sub create_iso {
             prepare_root();
         }
     );
-    for my $transfer (@{$yaml->{transfer} // []}) {
-        my ($user, $group, $source, $dest) = @$transfer;
-        if (system qw{rsync -P -a}, "--chown=$user:$group", qw{--mkpath}, $source, "$rootfs_path/$dest") {
-            die "Transfer failed $source -> $dest";
-        }
-    }
     finish_root($rootfs_path);
     system qw{rm}, "$contents_path/rootfs.squashfs";
     system qw{cp -v}, $source_stage, $rootfs_path;
@@ -258,6 +275,12 @@ sub create_stage {
 sub finish_root {
     my $tmp_new_stage = shift;
     die "System not marked successful" if !-e "$tmp_new_stage/success";
+    for my $transfer (@{$yaml->{transfer} // []}) {
+        my ($user, $group, $source, $dest) = @$transfer;
+        if (system qw{rsync -P -a}, "--chown=$user:$group", qw{--mkpath}, $source, "$tmp_new_stage/$dest") {
+            die "Transfer failed $source -> $dest";
+        }
+    }
     system rm => "$tmp_new_stage/success";
     system "rm -rf $tmp_new_stage/var/cache/distfiles/*";
     system "rm -rf $tmp_new_stage/var/db/repos/*";
