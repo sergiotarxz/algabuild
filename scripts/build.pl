@@ -230,7 +230,7 @@ sub create_iso {
     my $grub_dir = "$contents_path/boot/grub";
     system qw{mkdir -pv}, $grub_dir;
     open my $fh, '>', "$grub_dir/grub.cfg";
-    my ($kver) = glob("$rootfs_path/boot/kernel-*");
+    my ($kver) = reverse glob("$rootfs_path/boot/kernel-*");
     die "No kernel found in $rootfs_path/boot\n" unless $kver;
 
     $kver =~ s{.*/kernel-}{};
