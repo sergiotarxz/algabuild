@@ -15,6 +15,7 @@ my $spec;
 my $suffix;
 my $jobs = 4;
 my $skip_initial_setup;
+my $binpkg_dir;
 
 Getopt::Long::Configure( "bundling", "no_ignore_case" );
 GetOptions(
@@ -22,6 +23,7 @@ GetOptions(
     'spec|s=s'           => \$spec,
     'suffix|S=s'         => \$suffix,
     'jobs|j=s'           => \$jobs,
+    'binpkg-dir|b=s'       => \$binpkg_dir,
     'skip-initial-setup' => \$skip_initial_setup,
     'help'               => \$help
 );
@@ -41,6 +43,7 @@ Options:
 [-S|--suffix <generated stage suffix>]: Select spec file
 [-j|--jobs <number of jobs>]: Select number of jobs
 [--skip-initial-setup]: Avoids creating the ebuild tree and uncompressing the source stage for faster debugging
+[--binpkg-dir <dir>]: Where to take binpkgs from to speed up build
 [-h|--help]: Show this help.
 EOF
     exit 0;
@@ -111,6 +114,7 @@ sub generate_root_tmp {
         print $fh $yaml->{repos_conf};
         close $fh;
     }
+    copy_binpkgs_to_root();
 }
 
 sub prepare_root {
@@ -129,11 +133,13 @@ sub prepare_root {
         {
             die "Unable to link profile to $link_profile";
         }
-        if ( system qw{emerge -uUDN @world @system} ) {
-            die 'Unable to finish previous profile';
-        }
-        if ( system qw{emerge @preserved-rebuild} ) {
-            die 'Unable to finish previous profile';
+        if ( !$binpkg_dir ) {
+            if ( system qw{emerge --buildpkg --getbinpkg -uUDN @world @system} ) {
+                die 'Unable to finish previous profile';
+            }
+            if ( system qw{emerge --buildpkg --getbinpkg @preserved-rebuild} ) {
+                die 'Unable to finish previous profile';
+            }
         }
         my $profile_for_grep = $profile =~ s/^[^\/]*://r;
         if ( !system qw{grep -R clang},
@@ -145,11 +151,12 @@ sub prepare_root {
     if ( system qw{eselect profile set}, $profile ) {
         die "Could not set profile $profile";
     }
+    system rm => -v => '/etc/portage/binrepos.conf/gentoo.conf';
     my $is_binpkg = defined $yaml->{image_type} && $yaml->{image_type} eq 'binpkg';
     if ($rebuild_all || $is_binpkg) {
         die "Could not build the system"
-          if system( qw{emerge -e --with-bdeps=y @world @system},
-            $is_binpkg ? ('--buildpkg') : () );
+          if system(
+            qw{emerge --buildpkg --getbinpkg -e --with-bdeps=y @world @system});
     }
     else {
         if ( $yaml->{break_circular} ) {
@@ -161,9 +168,9 @@ sub prepare_root {
             $fh->flush;
             install_clang_if_needed();
             die "Could not build the system"
-              if system qw{emerge --noreplace --with-bdeps=y @world @system};
+              if system qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
             die "Could not build the system"
-              if system qw{emerge -uUDN --with-bdeps=y @world @system};
+              if system qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
 
             if ( system rm => $tmp_use_file ) {
                 die 'Failed to delete tmp cycle breaker package.use file';
@@ -171,12 +178,12 @@ sub prepare_root {
         }
         install_clang_if_needed();
         die "Could not build the system"
-          if system qw{emerge --noreplace --with-bdeps=y @world @system};
+          if system qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
         die "Could not build the system"
-          if system qw{emerge -uUDN --with-bdeps=y @world @system};
+          if system qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
     }
     die "Could not set the default editor"
-      if system qw{emerge --noreplace vim};
+      if system qw{emerge --buildpkg --getbinpkg --noreplace vim};
     die "Could not set the default editor"
       if system qw{eselect editor set vim};
     system qw{emerge --depclean --with-bdeps=y};
@@ -254,11 +261,18 @@ EOF
     }
 }
 
+sub copy_binpkgs_to_root {
+    my $tmp_new_stage = "$tmp/$stage_name";
+    if ($binpkg_dir) {
+        if (system qw{sudo rsync -a --mkpath -P}, "$binpkg_dir/", "$stage_dir/var/cache/binpkgs/") {
+            die "Unable to use the binpkg dir $binpkg_dir.";
+        }
+    }
+}
 
 sub create_stage {
     my $tmp_new_stage = "$tmp/$stage_name";
     system mkdir => -pv => $tmp_new_stage;
-
     generate_root_tmp($tmp_new_stage);
     mount_eval(
         $tmp_new_stage,
@@ -284,6 +298,9 @@ sub finish_root {
     system rm => "$tmp_new_stage/success";
     system "rm -rf $tmp_new_stage/var/cache/distfiles/*";
     system "rm -rf $tmp_new_stage/var/db/repos/*";
+    if (system qw{sudo eclean packages}) {
+        die 'Unable to clean old packages';
+    }
 }
 
 sub install_clang_if_needed {
@@ -294,7 +311,7 @@ sub install_clang_if_needed {
 }
 
 sub install_clang {
-    if ( system qw{emerge --noreplace llvm-core/clang} ) {
+    if ( system qw{emerge --buildpkg --getbinpkg --noreplace llvm-core/clang} ) {
         die "Failed to install clang";
     }
 }
