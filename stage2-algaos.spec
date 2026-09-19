@@ -1,5 +1,5 @@
 prefix: "stage2-algaos-"
-source: "stage1-algaos-latest.tar.xz"
+source: "stage1-algaos-@SUFFIX:-latest@.tar.xz"
 profile: "algaos:default/linux/amd64/23.0/algaos/desktop/default/systemd"
 break_circular:
     uses: "-sysprof -avif"

@@ -16,6 +16,9 @@ my $suffix;
 my $jobs = 4;
 my $skip_initial_setup;
 my $binpkg_dir;
+my $clean_binpkg;
+my $tmp_dir;
+my $source_stage_suffix;
 
 Getopt::Long::Configure( "bundling", "no_ignore_case" );
 GetOptions(
@@ -23,9 +26,12 @@ GetOptions(
     'spec|s=s'           => \$spec,
     'suffix|S=s'         => \$suffix,
     'jobs|j=s'           => \$jobs,
-    'binpkg-dir|b=s'       => \$binpkg_dir,
+    'binpkg-dir|b=s'     => \$binpkg_dir,
     'skip-initial-setup' => \$skip_initial_setup,
-    'help'               => \$help
+    'tmp-dir=s'          => \$tmp_dir,
+    'clean-binpkg'       => \$clean_binpkg,
+    'help'               => \$help,
+    'src-stage-suffix=s'   => \$source_stage_suffix,
 );
 
 if ( !$help ) {
@@ -44,6 +50,8 @@ Options:
 [-j|--jobs <number of jobs>]: Select number of jobs
 [--skip-initial-setup]: Avoids creating the ebuild tree and uncompressing the source stage for faster debugging
 [--binpkg-dir <dir>]: Where to take binpkgs from to speed up build
+[--clean-binpkg]: Delete the binpkgs after the build.
+[--src-stage-suffix <suffix>] The suffix of the stage to use as source.
 [-h|--help]: Show this help.
 EOF
     exit 0;
@@ -54,7 +62,7 @@ chomp $suffix;
 
 die 'Now try it as root' if $< != 0;
 
-my $algabuild_dir = '/var/tmp/algabuild';
+my $algabuild_dir = $tmp_dir // '/var/tmp/algabuild';
 my $tmp           = "$algabuild_dir/tmp";
 system mkdir => -pv => $tmp;
 my $stage_dir = "$algabuild_dir/stages";
@@ -68,6 +76,7 @@ my $repo_name    = $yaml->{repo_name} // 'gentoo';
 my $prefix       = $yaml->{prefix} or die 'No stage prefix in yaml';
 my $stage_name   = $prefix . $suffix;
 my $source       = $yaml->{source}  or die 'No source stage in yaml';
+$source =~ s/@(.*?)@/replace_tag_source_image($1)/e;
 my $profile      = $yaml->{profile} or die 'No profile in yaml';
 my $rebuild_all  = $yaml->{rebuild_all};
 my $source_stage = "$stage_dir/$source";
@@ -98,6 +107,20 @@ if ( !defined $callback ) {
 }
 
 $callback->();
+
+sub replace_tag_source_image($complete_tag) {
+    my ($tag, $default) = $complete_tag =~ /^(.*?):-(.*)$/;
+    my %dispatcher = (
+        SUFFIX => sub {
+            return $source_stage_suffix // $default;
+        }
+    );
+    my $func = $dispatcher{$tag};
+    if (!defined $func) {
+        die "Tag not recognized $tag";
+    }
+    return $func->();
+}
 
 sub generate_root_tmp {
     my $tmp_new_stage = shift;
@@ -134,7 +157,8 @@ sub prepare_root {
             die "Unable to link profile to $link_profile";
         }
         if ( !$binpkg_dir ) {
-            if ( system qw{emerge --buildpkg --getbinpkg -uUDN @world @system} ) {
+            if ( system qw{emerge --buildpkg --getbinpkg -uUDN @world @system} )
+            {
                 die 'Unable to finish previous profile';
             }
             if ( system qw{emerge --buildpkg --getbinpkg @preserved-rebuild} ) {
@@ -152,8 +176,9 @@ sub prepare_root {
         die "Could not set profile $profile";
     }
     system rm => -v => '/etc/portage/binrepos.conf/gentoo.conf';
-    my $is_binpkg = defined $yaml->{image_type} && $yaml->{image_type} eq 'binpkg';
-    if ($rebuild_all || $is_binpkg) {
+    my $is_binpkg =
+      defined $yaml->{image_type} && $yaml->{image_type} eq 'binpkg';
+    if ( $rebuild_all || $is_binpkg ) {
         die "Could not build the system"
           if system(
             qw{emerge --buildpkg --getbinpkg -e --with-bdeps=y @world @system});
@@ -168,9 +193,11 @@ sub prepare_root {
             $fh->flush;
             install_clang_if_needed();
             die "Could not build the system"
-              if system qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
+              if system
+              qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
             die "Could not build the system"
-              if system qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
+              if system
+              qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
 
             if ( system rm => $tmp_use_file ) {
                 die 'Failed to delete tmp cycle breaker package.use file';
@@ -178,9 +205,11 @@ sub prepare_root {
         }
         install_clang_if_needed();
         die "Could not build the system"
-          if system qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
+          if system
+          qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
         die "Could not build the system"
-          if system qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
+          if system
+          qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
     }
     die "Could not set the default editor"
       if system qw{emerge --buildpkg --getbinpkg --noreplace vim};
@@ -210,7 +239,12 @@ sub create_binpkgs {
         }
     );
     finish_root($rootfs_path);
-    if (system qw{rsync --mkpath -a -P}, "$rootfs_path/var/cache/binpkgs/", "$stage_dir/$stage_name/") {
+    if (
+        system qw{rsync --mkpath -a -P},
+        "$rootfs_path/var/cache/binpkgs/",
+        "$stage_dir/$stage_name/"
+      )
+    {
         die 'Copying binpkgs failed';
     }
 }
@@ -231,7 +265,8 @@ sub create_iso {
     finish_root($rootfs_path);
     system qw{rm}, "$contents_path/rootfs.squashfs";
     system qw{cp -v}, $source_stage, $rootfs_path;
-    if (system qw{mksquashfs}, $rootfs_path, "$contents_path/rootfs.squashfs") {
+    if ( system qw{mksquashfs}, $rootfs_path, "$contents_path/rootfs.squashfs" )
+    {
         die "Couldn't generate squashfs";
     }
     my $grub_dir = "$contents_path/boot/grub";
@@ -250,13 +285,15 @@ menuentry "AlgaOS" {
     initrd /boot/initramfs-$kver.img
 };
 EOF
-    if (system "cp -v $rootfs_path/boot/kernel* $contents_path/boot/") {
+    if ( system "cp -v $rootfs_path/boot/kernel* $contents_path/boot/" ) {
         die 'Unable to copy kernel';
     }
-    if (system "cp -v $rootfs_path/boot/initramfs* $contents_path/boot/") {
+    if ( system "cp -v $rootfs_path/boot/initramfs* $contents_path/boot/" ) {
         die 'Unable to copy initramfs';
     }
-    if (system qw{grub-mkrescue -iso-level 3 -volid ALGAOS -o}, "$stage_dir/$stage_name.iso", "$contents_path") {
+    if ( system qw{grub-mkrescue -iso-level 3 -volid ALGAOS -o},
+        "$stage_dir/$stage_name.iso", "$contents_path" )
+    {
         die 'Unable to create ISO with grub-mkrescue"';
     }
 }
@@ -264,7 +301,9 @@ EOF
 sub copy_binpkgs_to_root {
     my $tmp_new_stage = "$tmp/$stage_name";
     if ($binpkg_dir) {
-        if (system qw{sudo rsync -a --mkpath -P}, "$binpkg_dir/", "$stage_dir/var/cache/binpkgs/") {
+        if ( system qw{sudo rsync -a --mkpath -P},
+            "$binpkg_dir/", "$stage_dir/var/cache/binpkgs/" )
+        {
             die "Unable to use the binpkg dir $binpkg_dir.";
         }
     }
@@ -289,17 +328,25 @@ sub create_stage {
 sub finish_root {
     my $tmp_new_stage = shift;
     die "System not marked successful" if !-e "$tmp_new_stage/success";
-    for my $transfer (@{$yaml->{transfer} // []}) {
-        my ($user, $group, $source, $dest) = @$transfer;
-        if (system qw{rsync -P -a}, "--chown=$user:$group", qw{--mkpath}, $source, "$tmp_new_stage/$dest") {
+    for my $transfer ( @{ $yaml->{transfer} // [] } ) {
+        my ( $user, $group, $source, $dest ) = @$transfer;
+        if ( system qw{rsync -P -a},
+            "--chown=$user:$group", qw{--mkpath}, $source,
+            "$tmp_new_stage/$dest" )
+        {
             die "Transfer failed $source -> $dest";
         }
     }
     system rm => "$tmp_new_stage/success";
     system "rm -rf $tmp_new_stage/var/cache/distfiles/*";
     system "rm -rf $tmp_new_stage/var/db/repos/*";
-    if (system qw{sudo eclean packages}) {
+    if ( system qw{sudo eclean packages} ) {
         die 'Unable to clean old packages';
+    }
+    if ($clean_binpkg) {
+        system "rm -rf $tmp_new_stage/var/cache/binpkgs/*";
+        system
+          "rm -rf $tmp_new_stage/tmp/stage3-algaos-latest//var/cache/binhost/*";
     }
 }
 
@@ -311,7 +358,8 @@ sub install_clang_if_needed {
 }
 
 sub install_clang {
-    if ( system qw{emerge --buildpkg --getbinpkg --noreplace llvm-core/clang} ) {
+    if ( system qw{emerge --buildpkg --getbinpkg --noreplace llvm-core/clang} )
+    {
         die "Failed to install clang";
     }
 }

@@ -1,0 +1,3 @@
+sudo perl scripts/export_ebuild_tree.pl --repo ../algaos-ebuild-tree/ --tag v0.0.1-rc1 --output-dir /var/www/algaos/downloads/ --suffix latest
+sudo perl scripts/build.pl --spec iso-algaos.spec --suffix latest -j4 --repo ../algaos-ebuild-tree/
+sudo perl scripts/complete-build.pl --tag master --output-dir /var/www/algaos/downloads/ --repo ../algaos-ebuild-tree/ --precursor-dir /var/www/algaos/downloads/ -j 8 --binpkg-dir /var/www/algaos/downloads/binpkg-algaos-latest/ --src-stage-suffix latest
