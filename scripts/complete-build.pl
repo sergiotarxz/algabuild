@@ -18,6 +18,9 @@ my $binpkg_dir;
 my $precursor;
 my $source_stage_suffix = 'latest';
 
+open *STDOUT, '|-', qw/tee -a algabuild.log/;
+open *STDERR, '|-', qw/tee -a algabuild.log/;
+
 Getopt::Long::Configure( "bundling", "no_ignore_case" );
 GetOptions(
     'help|h'             => \$help,
@@ -68,11 +71,41 @@ if ( $< != 0 ) {
     exit 1;
 }
 
+for my $dir ( glob '/var/tmp/algabuild/tmp/algaos-complete-*' ) {
+    if ( !-e "$dir/.pid" ) {
+        system qw{rm -rf}, $dir;
+        next;
+    }
+    my $pid = `cat $dir/.pid`;
+    chomp $pid;
+    if (kill 0, $pid) {
+        next;
+    }
+    system qw{rm -rf}, $dir;
+}
+
 my $tmp_tarball = tempdir(
     'algaos-complete-build-XXXXXX',
     DIR     => '/var/tmp/algabuild/tmp/',
     CLEANUP => 1,
 );
+
+my $tmp_repo = tempdir(
+    'algaos-complete-build-repo-XXXXXX',
+    DIR     => '/var/tmp/algabuild/tmp/',
+    CLEANUP => 1,
+);
+
+my $tmp_out = tempdir(
+    'algaos-complete-build-tmp-XXXXXX',
+    DIR     => '/var/tmp/algabuild/tmp/',
+    CLEANUP => 1,
+);
+
+for my $dir ($tmp_tarball, $tmp_repo, $tmp_out) {
+    open my $fh, '>', "$dir/.pid";
+    print $fh $$;
+}
 
 if ( system qw{perl scripts/export_ebuild_tree.pl --repo},
     $repo, qw/--tag/, $tag, '--output-dir', $tmp_tarball, '--suffix', $suffix )
@@ -85,18 +118,6 @@ my $tarball_file = "$tmp_tarball/webrsync-$suffix.tar.bz2";
 if ( !-e $tarball_file ) {
     die "No tarball found at $tarball_file.";
 }
-
-my $tmp_repo = tempdir(
-    'algaos-complete-build-repo-XXXXXX',
-    DIR     => '/var/tmp/algabuild/tmp/',
-    CLEANUP => 1,
-);
-
-my $tmp_out = tempdir(
-    'algaos-complete-build-repo-XXXXXX',
-    DIR     => '/var/tmp/algabuild/tmp/',
-    CLEANUP => 1,
-);
 
 if ( system qw{tar -C}, $tmp_repo, qw{-xf}, $tarball_file ) {
     die "Failed to uncompress $tarball_file into $tmp_repo";
@@ -111,6 +132,17 @@ if (
   )
 {
     die "Unable to copy stages";
+}
+
+my $iso    = "$tmp_out/stages/iso-algaos-$source_stage_suffix.iso";
+my $stage2 = "$tmp_out/stages/stage2-algaos-$source_stage_suffix.tar.xz";
+my $stage3 = "$tmp_out/stages/stage3-algaos-$source_stage_suffix.tar.xz";
+my $binpkg = "$tmp_out/stages/binpkg-algaos-$source_stage_suffix";
+
+if (!$from_scratch && !-e $stage2) {
+    if (system qw/rsync -a -P/, $stage3, $stage2) {
+        die "No $stage2 and unable to copy from $stage3";
+    }
 }
 
 my @common_build_options = (
@@ -130,10 +162,6 @@ my @common_build_options = (
     qw/--tmp-dir/,
     $tmp_out,
 );
-
-my $iso    = "$tmp_out/stages/iso-algaos-$source_stage_suffix.iso";
-my $stage3 = "$tmp_out/stages/stage3-algaos-$source_stage_suffix.tar.xz";
-my $binpkg = "$tmp_out/stages/binpkg-algaos-$source_stage_suffix";
 
 my @commands = (
     [

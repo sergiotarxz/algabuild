@@ -302,7 +302,7 @@ sub copy_binpkgs_to_root {
     my $tmp_new_stage = "$tmp/$stage_name";
     if ($binpkg_dir) {
         if ( system qw{sudo rsync -a --mkpath -P},
-            "$binpkg_dir/", "$stage_dir/var/cache/binpkgs/" )
+            "$binpkg_dir/", "$tmp_new_stage/var/cache/binpkgs/" )
         {
             die "Unable to use the binpkg dir $binpkg_dir.";
         }
@@ -346,7 +346,7 @@ sub finish_root {
     if ($clean_binpkg) {
         system "rm -rf $tmp_new_stage/var/cache/binpkgs/*";
         system
-          "rm -rf $tmp_new_stage/tmp/stage3-algaos-latest//var/cache/binhost/*";
+          "rm -rf $tmp_new_stage/var/cache/binhost/*";
     }
 }
 
