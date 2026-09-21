@@ -20,6 +20,8 @@ my $clean_binpkg;
 my $tmp_dir;
 my $source_stage_suffix;
 
+$ENV{ACCEPT_LICENSE} = '*';
+
 Getopt::Long::Configure( "bundling", "no_ignore_case" );
 GetOptions(
     'repo|r=s'           => \$ebuild_tree,
@@ -156,12 +158,15 @@ sub prepare_root {
         {
             die "Unable to link profile to $link_profile";
         }
+        if (system qw{emerge -1 -v --buildpkg --getbinpkg -uUDN portage}) {
+            die 'Unable to update portage';
+        }
         if ( !$binpkg_dir ) {
-            if ( system qw{emerge --buildpkg --getbinpkg -uUDN @world @system} )
+            if ( system qw{emerge -v --buildpkg --getbinpkg -uUDN @world @system} )
             {
                 die 'Unable to finish previous profile';
             }
-            if ( system qw{emerge --buildpkg --getbinpkg @preserved-rebuild} ) {
+            if ( system qw{emerge -v --buildpkg --getbinpkg @preserved-rebuild} ) {
                 die 'Unable to finish previous profile';
             }
         }
@@ -181,7 +186,7 @@ sub prepare_root {
     if ( $rebuild_all || $is_binpkg ) {
         die "Could not build the system"
           if system(
-            qw{emerge --buildpkg --getbinpkg -e --with-bdeps=y @world @system});
+            qw{emerge -v --buildpkg --getbinpkg -e --with-bdeps=y @world @system});
     }
     else {
         if ( $yaml->{break_circular} ) {
@@ -194,10 +199,10 @@ sub prepare_root {
             install_clang_if_needed();
             die "Could not build the system"
               if system
-              qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
+              qw{emerge -v --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
             die "Could not build the system"
               if system
-              qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
+              qw{emerge -v --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
 
             if ( system rm => $tmp_use_file ) {
                 die 'Failed to delete tmp cycle breaker package.use file';
@@ -206,16 +211,16 @@ sub prepare_root {
         install_clang_if_needed();
         die "Could not build the system"
           if system
-          qw{emerge --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
+          qw{emerge -v --buildpkg --getbinpkg --noreplace --with-bdeps=y @world @system};
         die "Could not build the system"
           if system
-          qw{emerge --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
+          qw{emerge -v --buildpkg --getbinpkg -uUDN --with-bdeps=y @world @system};
     }
     die "Could not set the default editor"
-      if system qw{emerge --buildpkg --getbinpkg --noreplace vim};
+      if system qw{emerge -v --buildpkg --getbinpkg --noreplace vim};
     die "Could not set the default editor"
       if system qw{eselect editor set vim};
-    system qw{emerge --depclean --with-bdeps=y};
+    system qw{emerge -v --depclean --with-bdeps=y};
     my @commands = @{ $commands // [] };
     for my $command (@commands) {
         say "Running command $command";
@@ -358,7 +363,7 @@ sub install_clang_if_needed {
 }
 
 sub install_clang {
-    if ( system qw{emerge --buildpkg --getbinpkg --noreplace llvm-core/clang} )
+    if ( system qw{emerge -1 -v --buildpkg --getbinpkg --noreplace llvm-core/clang} )
     {
         die "Failed to install clang";
     }

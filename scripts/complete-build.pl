@@ -28,7 +28,7 @@ GetOptions(
     'repo=s'             => \$repo,
     'jobs|j=s'           => \$jobs,
     'tag|t=s'            => \$tag,
-    'suffix'             => \$suffix,
+    'suffix=s'             => \$suffix,
     'output-dir|O=s'     => \$output_dir,
     'binpkg-dir=s'       => \$binpkg_dir,
     'precursor-dir|P=s'  => \$precursor,
@@ -71,9 +71,10 @@ if ( $< != 0 ) {
     exit 1;
 }
 
+system "umount -R /var/tmp/algabuild/tmp/algaos-complete-*/tmp/*/*";
 for my $dir ( glob '/var/tmp/algabuild/tmp/algaos-complete-*' ) {
     if ( !-e "$dir/.pid" ) {
-        system qw{rm -rf}, $dir;
+        system qw{rm -rf --one-file-system}, $dir;
         next;
     }
     my $pid = `cat $dir/.pid`;
